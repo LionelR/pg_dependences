@@ -154,4 +154,9 @@ Graph legend:
 <td>function</td>
 <td>color:light-blue</td>
 </tr>
+
+<tr>
+<td>foreign keys columns</td>
+<td>on edge</td>
+</tr>
 </table>
