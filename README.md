@@ -132,3 +132,26 @@ OBJECT: tertiaire.branche
 And the graph (saved in your current directory, with filename=object_name.gv.pdf)
 
 ![Example graph](examples/example.png?raw=true)
+
+Graph legend:
+<table>
+<tr>
+<th>object</th>
+<th>attribute</th>
+</tr>
+
+<tr>
+<td>table</td>
+<td>color:white, border:black</td>
+</tr>
+
+<tr>
+<td>view</td>
+<td>color:light-grey</td>
+</tr>
+
+<tr>
+<td>function</td>
+<td>color:light-blue</td>
+</tr>
+</table>
