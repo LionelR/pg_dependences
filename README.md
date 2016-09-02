@@ -129,6 +129,6 @@ OBJECT: tertiaire.branche
         - REFERENCED BY: tertiaire.tc_emi
 </pre>
 
-And in the current directory, a PDF file will be generated (named from the object).
+And the graph (saved in your current directory, with filename=object_name.gv.pdf)
 
 ![Example graph](examples/example.png?raw=true)
