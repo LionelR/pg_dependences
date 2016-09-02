@@ -70,7 +70,7 @@ Getting a summary of linked objects and foreign keys counts of all tables and vi
 pg_dependences -h myhost -d mybase myschema
 ```
 
-The user password is asked if not set on the command line, like for the user name if no one is given and the environnement variable is empty.
+You'll be asked for the database password if not set on the command line, like for the user name if no one is given and the environnement variable is empty.
 
 <pre>
 In schema tertiaire                first stage links    foreign keys
@@ -129,4 +129,6 @@ OBJECT: tertiaire.branche
         - REFERENCED BY: tertiaire.tc_emi
 </pre>
 
+And in the current directory, a PDF file will be generated (named from the object).
 
+![Example graph](examples/example.png?raw=true)
