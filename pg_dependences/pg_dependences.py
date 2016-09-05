@@ -1,4 +1,5 @@
 import os
+import os.path
 import click
 from tabulate import tabulate
 import psycopg2
@@ -205,8 +206,9 @@ def graph_foreign_keys(g, conn, schema, table):
 @click.option('-p', '--port', help="Database port to connect to. Default to 5432", default=5432)
 @click.option('-v', '--verbose', help="Verbose mode. Only relevant with --table option", is_flag=True)
 @click.option('-t', '--table', help="Generate a detailled cascading graph of all objects related to this table or view")
+@click.option('-o', '--output', help="Directory where to put the resulting PDF file. Default to home directory")
 @click.argument('schema')
-def run(user, password, host, database, port, verbose, table, schema):
+def run(user, password, host, database, port, verbose, table, output, schema):
     """
     Report counts of linked objects and foreign keys at the first level for all tables and views in the specified
     schema.
@@ -219,7 +221,6 @@ def run(user, password, host, database, port, verbose, table, schema):
         logger.setLevel(logging.DEBUG)
 
     # password = click.prompt("Database password for %s" % user, hide_input=True)
-
     conn = psycopg2.connect(user=user,
                             password=password,
                             host=host,
@@ -234,7 +235,10 @@ def run(user, password, host, database, port, verbose, table, schema):
             res.append([r['table_name'], ilo, ifk])
         print(tabulate(res, ["In schema %s" % schema, "first stage links", "foreign keys"]))
     else:
-        g = Digraph(name=table, format='pdf')
+        if not output:
+            output = os.path.expanduser('~')
+        fname = "{0}.{1}".format(schema, table)
+        g = Digraph(os.path.join(output, fname), format='pdf')
         g.body.extend(['rankdir=LR', 'size="8,5"'])
         graph_linked_objects(g, conn, schema, table)
         graph_foreign_keys(g, conn, schema, table)

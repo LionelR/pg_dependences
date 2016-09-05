@@ -25,7 +25,7 @@ Python: Python3 is great (not tested with 2)
 ```
 git clone https://github.com/LionelR/pg_dependences.git
 cd pg_dependences
-sudo -H python setup.py install
+python setup.py install
 ```
 
 ... or ask Deep Thought to install it with:
