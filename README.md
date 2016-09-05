@@ -31,7 +31,7 @@ sudo -H python setup.py install
 ... or ask Deep Thought to install it with:
 
 ```
-pip install https://github.com/LionelR/pg_dependences.git
+pip install git+https://github.com/LionelR/pg_dependences.git
 ```
 
 These commands normally will create a executable on your system (thanks to the great Click package).
@@ -61,6 +61,8 @@ Options:
   -v, --verbose        Verbose mode. Only relevant with --table option
   -t, --table TEXT     Generate a detailled cascading graph of all objects
                        related to this table or view
+  -o, --output TEXT    Directory where to put the resulting PDF file. Default
+                       to home directory
   --help               Show this message and exit.
 ```
 
@@ -129,7 +131,8 @@ OBJECT: tertiaire.branche
         - REFERENCED BY: tertiaire.tc_emi
 </pre>
 
-And the graph (saved in your current directory, with filename=object_name.gv.pdf)
+And the resulting graph will be saved under your home directory by default
+(can be changed with the `-o` option), with file name formated like schema.table.gv.pdf
 
 ![Example graph](examples/example.png?raw=true)
 
