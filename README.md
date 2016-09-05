@@ -22,6 +22,15 @@ Python: Python3 is great (not tested with 2)
 
 ### Installation
 
+This package relies on GraphViz (http://graphviz.org) to generate graphs, so you have to install it first.
+On Debian/Ubuntu, it's simple as
+
+```
+apt-get install graphviz
+```
+
+After that, you can download the source code and install it
+
 ```
 git clone https://github.com/LionelR/pg_dependences.git
 cd pg_dependences
