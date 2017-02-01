@@ -16,7 +16,7 @@ view, which is used by a view, which in turn is also used by another view,
 
 
 ### Requirements
-Packages: Look at the requirements.txt file. So simple...  
+Packages: Look at the requirements.txt file. So simple...
 Python: Python3 is great (not tested with 2)
 
 

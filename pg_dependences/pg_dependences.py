@@ -62,7 +62,7 @@ def get_linked_objects(conn, schema, table):
     OR (definition SIMILAR TO %s AND schema_name=%s)
     ORDER BY type, schema_name, name
     """
-    key1 = '% (")?{0}(")?.(")?{1}(")? %'.format(schema, table)  # schema_name.table_name surrounded by spaces and optionaly double-quoted
+    key1 = '% (\()*(")?{0}(")?.(")?{1}(")?(\))* %'.format(schema, table)  # schema_name.table_name surrounded by spaces and optionaly double-quoted or between parenthesis
     key2 = '% (")?{0}(")?.(")?{1}(")?\(%'.format(schema, table)  # same, but terminating with a parenthesis, for function
     key3 = '% (")?{0}(")? %'.format(table)  # Just table_name, with optional double-quote (will be limited to the current schema)
     key4 = '% (")?{0}(")?\(%'.format(table)  # Same, but for function
