@@ -57,17 +57,13 @@ def get_linked_objects(conn, schema, table):
     SELECT type, schema_name, name
     FROM r
     WHERE definition SIMILAR TO %s
-    OR definition SIMILAR TO %s
-    OR (definition SIMILAR TO %s AND schema_name=%s)
     OR (definition SIMILAR TO %s AND schema_name=%s)
     ORDER BY type, schema_name, name
     """
-    key1 = '% (\()*(")?{0}(")?.(")?{1}(")?(\))* %'.format(schema, table)  # schema_name.table_name surrounded by spaces and optionaly double-quoted or between parenthesis
-    key2 = '% (")?{0}(")?.(")?{1}(")?\(%'.format(schema, table)  # same, but terminating with a parenthesis, for function
-    key3 = '% (")?{0}(")? %'.format(table)  # Just table_name, with optional double-quote (will be limited to the current schema)
-    key4 = '% (")?{0}(")?\(%'.format(table)  # Same, but for function
+    key1 = '%(")?{0}(")?.(")?{1}(")?(\()?%'.format(schema, table)
+    key2 = '%((")?{0}(")?.)?(")?{1}(")?(\()?%'.format(schema, table)
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    cur.execute(sql, [schema, table, key1, key2, key3, schema, key4, schema])
+    cur.execute(sql, [schema, table, key1, key2, schema])
     return cur.fetchall()
 
 
@@ -199,7 +195,7 @@ def graph_foreign_keys(g, conn, schema, table):
 @click.command('graph_dependences')
 @click.option('-u', '--user', help="Database user name. Default to current user",
               default=lambda: os.environ.get('USER', ''))
-@click.option('-P', '--password', prompt=True, hide_input=True, help="User password. WIll be prompted if not set")
+@click.option('-P', '--password', prompt=True, hide_input=True, help="User password. Will be prompted if not set")
 @click.option('-h', '--host', help="Database host address. Default to localhost", default='localhost')
 @click.option('-d', '--database', help="Database name. Default to current user name",
               default=lambda: os.environ.get('USER', ''))
@@ -208,6 +204,8 @@ def graph_foreign_keys(g, conn, schema, table):
 @click.option('-t', '--table', help="Generate a detailled cascading graph of all objects related to this table or view")
 @click.option('-o', '--output', help="Directory where to put the resulting PDF file. Default to home directory")
 @click.argument('schema')
+
+
 def run(user, password, host, database, port, verbose, table, output, schema):
     """
     Report counts of linked objects and foreign keys at the first level for all tables and views in the specified
