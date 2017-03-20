@@ -6,7 +6,7 @@ with codecs_open('README.md', encoding='utf-8') as f:
     long_description = f.read()
 
 setup(name='pg_dependences',
-      version='0.1',
+      version='0.2',
       url='https://github.com/LionelR/pg_dependences',
       license='MIT',
       author='Lionel Roubeyrie',
