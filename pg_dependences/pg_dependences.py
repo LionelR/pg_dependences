@@ -204,8 +204,6 @@ def graph_foreign_keys(g, conn, schema, table):
 @click.option('-t', '--table', help="Generate a detailled cascading graph of all objects related to this table or view")
 @click.option('-o', '--output', help="Directory where to put the resulting PDF file. Default to home directory")
 @click.argument('schema')
-
-
 def run(user, password, host, database, port, verbose, table, output, schema):
     """
     Report counts of linked objects and foreign keys at the first level for all tables and views in the specified
