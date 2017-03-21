@@ -70,14 +70,14 @@ class Dependences():
 
         :param: sql: SQL string to execute
         :param: params: parameters list to pass to psycopg2
-        :return: psycopg2.extras.DictCursor {schema_name, table_name}
+        :return: psycopg2.extras.DictCursor
         """
         self.cur.execute(sql, params)
         return self.cur.fetchall()
     
     def create_table(self, schema, table):
         """
-        Create a Table object and set it as self.table
+        Create a Table object
 
         :param schema: schema name
         :param table: object name (table or view)
