@@ -4,7 +4,7 @@ import click
 from tabulate import tabulate
 import psycopg2
 import psycopg2.extras
-from graphviz import Digraph
+import graphviz
 
 # Output configuration
 import logging
@@ -12,184 +12,271 @@ format_ = '%(message)s'
 logging.basicConfig(format=format_, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+STYLES = {
+    'BASE TABLE': {'style':'solid', 'color':'black'},
+    'FUNCTION': {'style':'filled', 'color':'lightblue2'},
+    'VIEW': {'style':'filled', 'color':'lightgrey'}
+}
 
-links = list()
+class Table():
+    def __init__(self, row):
+        """
+        An object in the database.
+        Can be a table, a view, ...
+
+        :param row: a psycopg2.DictCursor row
+        """
+        self.schema = row['schema_name']
+        self.name = row['table_name']
+        self._type = row['type']
+    
+    def formated(self):
+        return "{0}.{1}".format(self.schema, self.name)
+    
+    def __unicode__(self):
+        return "[{0}] {1}.{2}".format(self._type, self.schema, self.name)
 
 
-def get_linked_objects(conn, schema, table):
-    """
-    From a database object (table or view), returns all functions and views
-     containing/using this object.
+class Column():
+    def __init__(self, row):
+        """
+        An column object
 
-    :param conn: psycopg2 connection
-    :param schema: schema name to inspect
-    :param table: object name to inspect
-    :return: psycopg2.extras.DictCursor {type ['VIEW'|'FUNCTION'], schema_name, name}
-    """
+        :param row: a psycopg2.DictCursor row
+        """
+        self.schema = row['schema_name']
+        self.table = row['table_name']
+        self.name = row['name']
+        self._type = 'BASE TABLE'
+    
+    def formated(self):
+        return "{0}.{1}".format(self.schema, self.table)
+    
+    def fkeys(self):
+        return ', '.join(self.name)
+    
+    def __unicode__(self):
+        return "{0}.{1}.{2}".format(self.schema, self.table, self.name)
 
-    sql = """
-    WITH f AS (
+
+class Dependences():
+    def __init__(self, **kwargs):
+        self.conn = psycopg2.connect(**kwargs, connect_timeout=5)
+        self.cur = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    
+    def _exec(self, sql, params):
+        """
+        Execute a query
+
+        :param: sql: SQL string to execute
+        :param: params: parameters list to pass to psycopg2
+        :return: psycopg2.extras.DictCursor {schema_name, table_name}
+        """
+        self.cur.execute(sql, params)
+        return self.cur.fetchall()
+    
+    def create_table(self, schema, table):
+        """
+        Create a Table object and set it as self.table
+
+        :param schema: schema name
+        :param table: object name (table or view)
+        :return: a Table object
+        """
+
+        sql = """
         SELECT
-          'FUNCTION' :: TEXT        AS "type",
-          n.nspname                 AS schema_name,
-          p.proname                 AS "name",
-          regexp_replace(pg_get_functiondef(p.oid), '[\n\r]+', ' ', 'g') AS definition
-        FROM pg_catalog.pg_proc p
-          INNER JOIN pg_catalog.pg_namespace n ON (n.oid = p.pronamespace)
-        WHERE n.nspname NOT IN ('public', 'information_schema', 'pg_catalog') AND p.proname != 'nmul'
-        AND NOT (n.nspname = %s AND p.proname = %s)
-    ),
-    v AS (
+            table_type AS type,
+            table_schema AS schema_name,
+            table_name
+        FROM information_schema.tables
+        WHERE table_schema = %s AND table_name = %s
+        AND table_type IN ('BASE TABLE', 'VIEW')
+        ORDER BY 1,2,3
+        """
+
+        params = [schema, table]
+        return [Table(row) for row in self._exec(sql, params)][0]
+
+    def schema_list(self, schema):
+        """
+        List tables and views inside a schema
+
+        :param schema: schema name to inspect.
+        """
+        sql = """
         SELECT
-          'VIEW'::TEXT AS "type",
-          v.schemaname AS schema_name,
-          v.viewname AS "name",
-          regexp_replace(v.definition, '[\n\r]+', ' ', 'g') AS definition
-        FROM pg_catalog.pg_views v
-        WHERE v.schemaname NOT IN ('public', 'information_schema', 'pg_catalog', 'nmul')
+            table_type AS type,
+            table_schema AS schema_name,
+            table_name
+        FROM information_schema.tables
+        WHERE table_schema = %s
+        AND table_type IN ('BASE TABLE', 'VIEW')
+        ORDER BY 1,2,3
+        """
+        params = [schema]
 
-    ),
-    r AS (
-        SELECT * FROM f
-        UNION SELECT * FROM v
-    )
+        return [Table(row) for row in self._exec(sql, params)]
+        
+    def childs(self, table):
+        """
+        Returns all functions and views using the table.
 
-    SELECT type, schema_name, name
-    FROM r
-    WHERE definition SIMILAR TO %s
-    OR (definition SIMILAR TO %s AND schema_name=%s)
-    ORDER BY type, schema_name, name
-    """
-    key1 = '%(")?{0}(")?.(")?{1}(")?(\()?%'.format(schema, table)
-    key2 = '%((")?{0}(")?.)?(")?{1}(")?(\()?%'.format(schema, table)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    cur.execute(sql, [schema, table, key1, key2, schema])
-    return cur.fetchall()
+        :return: List of Table objects
+        """
+
+        sql = """
+        WITH f AS (
+            SELECT
+            'FUNCTION' :: TEXT AS type,
+            n.nspname AS schema_name,
+            p.proname AS table_name,
+            regexp_replace(pg_get_functiondef(p.oid), E'[\\n\\r]+', ' ', 'g') AS definition
+            FROM pg_catalog.pg_proc p
+            INNER JOIN pg_catalog.pg_namespace n ON (n.oid = p.pronamespace)
+            WHERE n.nspname NOT IN ('public', 'information_schema', 'pg_catalog') AND p.proname != 'nmul'
+            AND NOT (n.nspname = %s AND p.proname = %s)
+        ),
+        v AS (
+            SELECT
+            'VIEW'::TEXT AS type,
+            v.schemaname AS schema_name,
+            v.viewname AS table_name,
+            regexp_replace(v.definition, E'[\\n\\r]+', ' ', 'g') AS definition
+            FROM pg_catalog.pg_views v
+            WHERE v.schemaname NOT IN ('public', 'information_schema', 'pg_catalog', 'nmul')
+
+        ),
+        r AS (
+            SELECT * FROM f
+            UNION SELECT * FROM v
+        )
+
+        SELECT type, schema_name, table_name
+        FROM r
+        WHERE definition SIMILAR TO %s
+        OR (definition SIMILAR TO %s AND schema_name=%s)
+        ORDER BY 1,2,3
+        """
+        
+        params = [
+            table.schema,
+            table.name,
+            '% (\()*(")?{0}(")?.(")?{1}(")?(\))*(;)?(\()? %'.format(table.schema, table.name),
+            '% (\()*(")?{0}(")?(\))*(;)?(\()? %'.format(table.name),
+            table.schema
+        ]
+
+        return [Table(row) for row in self._exec(sql, params)]
+
+    def recursive_childs(self, table):
+        """
+        Recursively compute all the childs from the top Table
+        """
+
+        res = list()
+        scanned = [table]
+        for parent in scanned:
+            childs = self.childs(parent)
+            if len(childs) > 0:
+                res.append([parent, childs])
+                [scanned.append(c) for c in childs if c not in scanned]
+                logger.debug("%s Childs= %s" % (parent.__unicode__(), [c.__unicode__() for c in childs]))
+        
+        return res
 
 
-def get_foreign_key(conn, schema, table):
-    """
-    Returns all tables/views referencing a table
+    def fkeys(self, table):
+        """
+        Returns all tables/views referencing a table
 
-    :param conn: psycopg2 connection
-    :param schema: schema name to inspect
-    :param table: object name to inspect
-    :return: psycopg2.extras.DictCursor {schema_name, table_name, column_name}
-    """
+        :return: List of Column objects
+        """
 
-    sql = """
-    SELECT
-      rest.table_schema as schema_name,
-      rest.table_name,
-      rest.column_name
-    FROM (
+        sql = """
         SELECT
-            a.constraint_catalog, a.constraint_schema, a.constraint_name, a.table_schema, a.table_name,
-            array_agg(a.column_name::TEXT) AS column_name
-        FROM information_schema.constraint_column_usage a
-        GROUP BY a.constraint_catalog, a.constraint_schema, a.constraint_name, a.table_schema, a.table_name
-    ) refer
-    INNER JOIN information_schema.referential_constraints fkey
-        USING (constraint_catalog, constraint_schema, constraint_name)
-    INNER JOIN (
-        SELECT
-            a.constraint_catalog, a.constraint_schema, a.constraint_name, a.table_schema, a.table_name,
-            array_agg(a.column_name::TEXT) AS column_name
+        rest.table_schema as schema_name,
+        rest.table_name,
+        rest.column_name AS name
         FROM (
             SELECT
-                *
-            FROM information_schema.key_column_usage
-            ORDER BY ordinal_position, position_in_unique_constraint
-        ) a
-        GROUP BY a.constraint_catalog, a.constraint_schema, a.constraint_name, a.table_schema, a.table_name
-    ) rest
-        USING (constraint_catalog, constraint_schema, constraint_name)
-    WHERE refer.table_schema=%s AND refer.table_name=%s
-    ORDER BY rest.table_schema, rest.table_name
-    """
-    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    cur.execute(sql, [schema, table])
-    return cur.fetchall()
+                a.constraint_catalog, a.constraint_schema, a.constraint_name, a.table_schema, a.table_name,
+                array_agg(a.column_name::TEXT) AS column_name
+            FROM information_schema.constraint_column_usage a
+            GROUP BY a.constraint_catalog, a.constraint_schema, a.constraint_name, a.table_schema, a.table_name
+        ) refer
+        INNER JOIN information_schema.referential_constraints fkey
+            USING (constraint_catalog, constraint_schema, constraint_name)
+        INNER JOIN (
+            SELECT
+                a.constraint_catalog, a.constraint_schema, a.constraint_name, a.table_schema, a.table_name,
+                array_agg(a.column_name::TEXT) AS column_name
+            FROM (
+                SELECT
+                    *
+                FROM information_schema.key_column_usage
+                ORDER BY ordinal_position, position_in_unique_constraint
+            ) a
+            GROUP BY a.constraint_catalog, a.constraint_schema, a.constraint_name, a.table_schema, a.table_name
+        ) rest
+            USING (constraint_catalog, constraint_schema, constraint_name)
+        WHERE refer.table_schema=%s AND refer.table_name=%s
+        ORDER BY 1,2,3
+        """
+        
+        params = [table.schema, table.name]
+
+        cols = [Column(row) for row in self._exec(sql, params)]
+        logger.debug("%s FKeys= %s" % (table.__unicode__(), [c.__unicode__() for c in cols]))
+        return table, cols
 
 
-def get_objects_list(conn, schema):
-    """
-    List objects names (tables, views) inside a schema
+class Graph():
+    def __init__(self, fname, childs_list, fkeys_list, format='pdf'):
+        self.graph =  graphviz.Digraph(fname, format=format)
+        self.graph.body.extend(['rankdir=LR', 'size="8,5"'])
+        self.plotted = list()
+        self.graph_childs(childs_list)
+        self.graph_fkeys(fkeys_list)
+        self.graph.render(cleanup=True)
 
-    :param conn: psycopg2 connection
-    :param schema: schema name to inspect. Format "schema_name"
-    :return: psycopg2.extras.DictCursor {schema_name, table_name}
-    """
-    sql = """
-    SELECT
-        table_schema AS schema_name,
-        table_name
-    FROM information_schema.tables
-    WHERE table_schema = %s
-    AND table_type IN ('BASE TABLE', 'VIEW')
-    ORDER BY table_name ASC
-    """
-    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    cur.execute(sql, [schema])
-    return cur.fetchall()
+    def graph_childs(self, childs_list):
+        """
+        Add the childs objects to the graph
 
+        :param childs_list: list of [parent, list of childs]
+        """
 
-def graph_linked_objects(g, conn, schema, table):
-    """
-    Recursively append linked object (view and function) to the Digraph graph
-    from the top table object
+        for parent, childs in childs_list:
+            if parent not in self.plotted:
+                self.graph.attr('node', style=STYLES[parent._type]['style'], color=STYLES[parent._type]['color'])
+                self.graph.node(parent.formated())
+                self.plotted.append(parent)
+            for child in childs:
+                if child not in self.plotted:
+                    self.graph.attr('node', style=STYLES[child._type]['style'], color=STYLES[child._type]['color'])
+                    self.graph.node(child.formated())
+                    self.plotted.append(child)
+                self.graph.edge(parent.formated(), child.formated())
 
-    :param g: a Digraph object
-    :param conn: psycopg2 connection
-    :param schema: schema name to inspect
-    :param table: object name to inspect
-    :return: Nothing
-    """
+    def graph_fkeys(self, fkeys_list):
+        """
+        Add the foreign keys objects to the graph
 
-    rows = get_linked_objects(conn, schema, table)
-    if len(rows) > 0:
-        logger.debug("OBJECT: {0}.{1}".format(schema, table))
-    for r in rows:
-        node = "{0}.{1}".format(r['schema_name'], r['name'])
-        parent_node = "{0}.{1}".format(schema, table)
-        if node != parent_node:
-            logger.debug("\t- USED IN {0}: {1}".format(r['type'], node))
-            if parent_node not in links:  # Used at the first loop for the top level table
-                g.attr('node', style='solid', color='black')
-                g.node(parent_node)
-                links.append(parent_node)
-            if r['type'] == 'FUNCTION':
-                g.attr('node', style='filled', color='lightblue2')
-            else:
-                g.attr('node', style='filled', color='lightgrey')
-            g.node(node)
-            g.edge(parent_node, node)
+        :param fkeys: list of [parent, list of fkeys]
+        """
 
-        if node not in links:
-            links.append(node)
-            graph_linked_objects(g, conn, r['schema_name'], r['name'])
-
-
-def graph_foreign_keys(g, conn, schema, table):
-    """
-    Recursively append linked tables by foreign key constraint to the Digraph graph
-    from the top table object
-    :param g: a Digraph object
-    :param conn: psycopg2 connection
-    :param schema: schema name to inspect
-    :param table: object name to inspect. Format "schema_name.object_name"
-    :return: Nothing
-    """
-
-    rows = get_foreign_key(conn, schema, table)
-    if len(rows) > 0:
-        logger.debug("OBJECT: {0}.{1}".format(schema, table))
-    for r in rows:
-        node = "{0}.{1}".format(r['schema_name'], r['table_name'])
-        logger.debug("\t- REFERENCED BY: {0}".format(node))
-        g.attr('node', style='solid', color='black')
-        parent_node = "{0}.{1}".format(schema, table)
-        g.edge(parent_node, node, label=', '.join(r['column_name']))
+        parent, childs = fkeys_list
+        if parent not in self.plotted:
+            self.graph.attr('node', style=STYLES[parent._type]['style'], color=STYLES[parent._type]['color'])
+            self.graph.node(parent.formated())
+            self.plotted.append(parent)
+        for child in childs:
+            if child not in self.plotted:
+                self.graph.attr('node', style=STYLES[child._type]['style'], color=STYLES[child._type]['color'])
+                self.graph.node(child.formated())
+                self.plotted.append(child)
+            self.graph.edge(parent.formated(), child.formated(), label=child.fkeys())
 
 
 @click.command('graph_dependences')
@@ -213,32 +300,29 @@ def run(user, password, host, database, port, verbose, table, output, schema):
     using foreign keys to this top level table, if any.
     """
 
-    if verbose and table:
+    if verbose:
         logger.setLevel(logging.DEBUG)
 
-    # password = click.prompt("Database password for %s" % user, hide_input=True)
-    conn = psycopg2.connect(user=user,
-                            password=password,
-                            host=host,
-                            database=database,
-                            port=port)
+    dep = Dependences(user=user, password=password, host=host, database=database, port=port)
 
     if not table:
+        # Display a listing of all objects dependencies inside the schema
         res = list()
-        for r in get_objects_list(conn, schema):
-            ilo = len(get_linked_objects(conn, r['schema_name'], r['table_name']))
-            ifk = len(get_foreign_key(conn, r['schema_name'], r['table_name']))
-            res.append([r['table_name'], ilo, ifk])
-        print(tabulate(res, ["In schema %s" % schema, "first stage links", "foreign keys"]))
+        for table in dep.schema_list(schema):
+            ilo = len(dep.childs(table))
+            ifk = len(dep.fkeys(table)[1])
+            res.append([table.schema, table._type, table.name, ilo, ifk])
+        print(tabulate(res, ["Schema", "Type", "Name", "Dependents (first level)", "Foreign keys"]))
     else:
         if not output:
             output = os.path.expanduser('~')
         fname = "{0}.{1}".format(schema, table)
-        g = Digraph(os.path.join(output, fname), format='pdf')
-        g.body.extend(['rankdir=LR', 'size="8,5"'])
-        graph_linked_objects(g, conn, schema, table)
-        graph_foreign_keys(g, conn, schema, table)
-        g.render(cleanup=True)
+
+        table = dep.create_table(schema, table)
+        childs_list = dep.recursive_childs(table)
+        fkeys_list = dep.fkeys(table)
+
+        Graph(os.path.join(output, fname), childs_list, fkeys_list, format='pdf')
 
 
 if __name__ == '__main__':
