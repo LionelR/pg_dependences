@@ -223,15 +223,15 @@ class Dependences():
 
 
 class Graph():
-    def __init__(self, fname, format):
-        self.graph =  graphviz.Digraph(fname, format=format)
+    def __init__(self, name, format):
+        self.graph =  graphviz.Digraph(name=name, format=format)
         self.graph.graph_attr['rankdir'] = 'LR'
         self.plotted = list()
     
-    def render(self, dependents):
+    def render(self, filename, directory, dependents):
         for objects_list in dependents:
             self.add(objects_list)
-        path = self.graph.render(cleanup=True)
+        path = self.graph.render(filename=filename, directory=directory, cleanup=True)
         return path
 
     def add(self, objects_list):
@@ -260,43 +260,68 @@ class Graph():
 @click.option('-d', '--database', help="Database name. Default current user name",
               default=lambda: os.environ.get('USER', ''))
 @click.option('-p', '--port', help="Database port to connect to. Default 5432", default=5432)
-@click.option('-v', '--verbose', help="Verbose mode. Only relevant with the --table option and the graph will not be generated", is_flag=True)
 @click.option('-t', '--table', help="Generate a detailled cascading graph of all objects related to this table or view")
-@click.option('-o', '--output', help="Directory where to put the graph file. Default to home directory and filename formated as schema.table.gv.format")
-@click.option('-f', '--format', help="Graph file format (see Graphviz docs for more). Default to pdf", default='pdf')
+@click.option('-g', '--graph', help="Graph mode. Only relevant with the --table option", is_flag=True)
+@click.option('-o', '--output', help="Directory where to put the graph file. Default to home directory")
+@click.option('-f', '--format', help="Graph file format (see Graphviz docs for more infos). The final filename will be formated like schema.table.format. Default to pdf", default='pdf')
 @click.argument('schema')
-def run(user, password, host, database, port, verbose, table, output, format, schema):
+def run(user, password, host, database, port, graph, table, output, format, schema):
     """
-    Report counts of linked objects and foreign keys at the first level for all tables and views in the specified
-    schema.
-    With the --table option, generates a pdf graph presenting for this specified top level table (or view) all the
-    dependents objects in a cascaded style, i.e. all linked views and functions using these objects, and all tables
-    using foreign keys to this top level table, if any.
+    In a defined schema, reports for each table or view the counts of his dependents objects (views and functions calling it) 
+    and his foreign keys. Can also, for a particular table or view, reports in a cascaded way all his
+    dependents objects and his foreign keys, and graph them.
     """
 
-    if verbose and table is not None:
-        logger.setLevel(logging.DEBUG)
+    # if verbose and table is not None:
+    #     logger.setLevel(logging.DEBUG)
 
     dep = Dependences(user=user, password=password, host=host, database=database, port=port)
 
     if not table:
         # Display a listing of all objects dependencies inside the schema
         res = list()
+        headers = ["Schema", "Type", "Name", "Dependents (first level)", "Foreign keys"]
         for table in dep.schema_list(schema):
             ilo = len(dep.childs(table))
             ifk = len(dep.fkeys(table)[1])
             res.append([table.schema, table._type, table.name, ilo, ifk])
-        print(tabulate(res, ["Schema", "Type", "Name", "Dependents (first level)", "Foreign keys"]))
+        logger.info(tabulate(res, headers))
     else:
         table = dep.create_table(schema, table)
         childs_list = dep.recursive_childs(table)
         fkeys_list = [dep.fkeys(table)]
-        if not verbose:
+        if graph:
+            g = Graph(name=table.formated(), format=format)
             if not output:
                 output = os.path.expanduser('~')
-            g = Graph(os.path.join(output, table.formated()), format=format)
-            path = g.render([childs_list, fkeys_list])
+            path = g.render(filename=table.formated(), directory=output, dependents=[childs_list, fkeys_list])
             logger.info("Graph rendered in %s" % path)
+        else:
+            res = list()
+            headers = ['Type', 'Name', 'Dep./For. Type', 'Dep./For. object', 'Foreign keys']
+            childs_list.extend(fkeys_list)
+            for parent, childs in childs_list:
+                for i, child in enumerate(childs):
+                    if i == 0:
+                        t = parent._type
+                        p = parent.formated()
+                    else:
+                        t = ''
+                        p = ''
+                    res.append([t, p, child._type, child.formated(), child.cols])
+            # for parent, childs in fkeys_list:
+            #     for i, child in enumerate(childs):
+            #         if i == 0:
+            #             t = parent._type
+            #             p = parent.formated()
+            #         else:
+            #             t = ''
+            #             p = ''
+            #         res.append([t, p, child._type, child.formated(), child.cols])
+            logger.info(tabulate(res, headers))
+
+
+
 
 
 

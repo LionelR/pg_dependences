@@ -51,99 +51,84 @@ These commands normally will create a executable on your system (thanks to the g
 For help, call help (or better call Saul)
 
 ```
-pg_dependences --help
+pg_dependences.py --help
+```
+
+<pre>
 Usage: pg_dependences.py [OPTIONS] SCHEMA
 
-  Report counts of linked objects and foreign keys at the first level for
-  all tables and views in the specified schema. With the --table option,
-  generates a pdf graph presenting for this specified top level table (or
-  view) all the dependents objects in a cascaded style, i.e. all linked
-  views and functions using these objects, and all tables using foreign keys
-  to this top level table, if any.
+  In a defined schema, reports for each table or view the counts of his
+  dependents objects (views and functions calling it)  and his foreign keys.
+  Can also, for a particular table or view, reports in a cascaded way all
+  his dependents objects and his foreign keys, and graph them.
 
 Options:
-  -u, --user TEXT      Database user name. Default to current user
-  -P, --password TEXT  User password. WIll be prompted if not set
-  -h, --host TEXT      Database host address. Default to localhost
-  -d, --database TEXT  Database name. Default to current user name
-  -p, --port INTEGER   Database port to connect to. Default to 5432
-  -v, --verbose        Verbose mode. Only relevant with --table option
+  -u, --user TEXT      Database user name. Default current user
+  -P, --password TEXT  User password. Will be prompted if not set
+  -h, --host TEXT      Database host address. Default localhost
+  -d, --database TEXT  Database name. Default current user name
+  -p, --port INTEGER   Database port to connect to. Default 5432
   -t, --table TEXT     Generate a detailled cascading graph of all objects
                        related to this table or view
-  -o, --output TEXT    Directory where to put the resulting PDF file. Default
-                       to home directory
+  -g, --graph          Graph mode. Only relevant with the --table option
+  -o, --output TEXT    Directory where to put the graph file. Default to home
+                       directory
+  -f, --format TEXT    Graph file format (see Graphviz docs for more infos).
+                       The final filename will be formated like
+                       schema.table.format. Default to pdf
   --help               Show this message and exit.
-```
-
-Getting a summary of linked objects and foreign keys counts of all tables and views in a schema:
-
-```
-pg_dependences -h myhost -d mybase myschema
-```
-
-You'll be asked for the database password if not set on the command line, like for the user name if no one is given and the environnement variable is empty.
-
-<pre>
-In schema tertiaire                first stage links    foreign keys
--------------------------------  -------------------  --------------
-branche                                            2               6
-chaufferies_collectives                            3               0
-clap                                               1               0
-cor_cp_numcom                                      2               0
-cor_naf_branche                                    1               0
-cu_regionaux                                       1               0
-enseignement                                       2               0
-fe_tertiaire                                       1               0
-sante                                              1               0
-social                                             1               0
-tc_conso_botup                                     2               0
-tc_conso_corrigees_botup                           3               0
-tc_emi                                             1               0
-tertiaire_reference                                0               2
-verif_tc_conso_corrigees_botup                     0               0
-vue1_effectifs_non_sante_social                    1               0
-vue2_social_numcom                                 0               0
-vue3_capacite_sante_social                         1               0
-vue4_conso                                         2               0
-vue5_fe_tertiaire_fin                              3               0
-vue6_emi                                           1               0
-vue7_conso_020100_fin                              0               0
-vue8_emi_020100_fin                                0               0
-vue_test1_bouclage_conso                           0               0
-vue_test2_bouclage_emi                             0               0
-vue_validation_capacite_social                     0               0
 </pre>
 
-For a particular object in the schema, we can now generate a graph showing all
-dependencies in a cascaded way.
+Getting a summary of dependents objects and foreign keys counts for all tables and views in a schema:
 
 ```
-pg_dependences -h myhost -d mybase -t branche -v myschema
+pg_dependences residentiel
 ```
-The `-v` for verbose option will give a detail of what is finded on the terminal.
+
+You'll be asked for the database password if not set on the command line, like for the user name if no one is given and the 'USER' environnement variable is empty.
 
 <pre>
-OBJECT: tertiaire.branche
-        - USED IN VIEW: tertiaire.vue2_social_numcom
-        - USED IN VIEW: tertiaire.vue3_capacite_sante_social
-OBJECT: tertiaire.vue3_capacite_sante_social
-        - USED IN VIEW: tertiaire.vue4_conso
-OBJECT: tertiaire.vue4_conso
-        - USED IN VIEW: tertiaire.vue7_conso_020100_fin
-        - USED IN VIEW: tertiaire.vue_test1_bouclage_conso
-OBJECT: tertiaire.branche
-        - REFERENCED BY: tertiaire.chaufferies_collectives
-        - REFERENCED BY: tertiaire.cu_regionaux
-        - REFERENCED BY: tertiaire.enseignement
-        - REFERENCED BY: tertiaire.tc_conso_botup
-        - REFERENCED BY: tertiaire.tc_conso_corrigees_botup
-        - REFERENCED BY: tertiaire.tc_emi
+Schema       Type        Name                                      Dependents (first level)    Foreign keys
+-----------  ----------  --------------------------------------  --------------------------  --------------
+residentiel  BASE TABLE  achl                                                             2               1
+residentiel  BASE TABLE  achl_groupe                                                      1               4
+residentiel  BASE TABLE  bois_repartition_par_modele_equipement                           1               0
+residentiel  BASE TABLE  bois_repartition_par_type_equipement                             1               0
+residentiel  BASE TABLE  brutes                                                           1               0
+residentiel  BASE TABLE  catl                                                             2               1
+residentiel  BASE TABLE  catl_groupe                                                      2               4
+residentiel  BASE TABLE  chau                                                             0               1
+
 </pre>
 
-And the resulting graph will be saved under your home directory by default
-(can be changed with the `-o` option), with file name formated like schema.table.gv.pdf
+For a particular object in the schema, we can have a look in a cascaded way of his dependents (and so the dependents of the dependents, and so on...).
 
-![Example graph](examples/example.png?raw=true)
+```
+pg_dependences -t achl_groupe residentiel
+```
+
+<pre>
+Type        Name                              Dep./For. Type    Dep./For. object                  Foreign keys
+----------  --------------------------------  ----------------  --------------------------------  --------------
+BASE TABLE  residentiel.achl_groupe           VIEW              residentiel.vue1_detail_logement
+VIEW        residentiel.vue1_detail_logement  FUNCTION          residentiel.create_tc_logements
+                                              VIEW              residentiel.verif_tc_logements
+BASE TABLE  residentiel.achl_groupe           BASE TABLE        residentiel.achl                  groupe
+                                              BASE TABLE        residentiel.tc_conso              achl
+                                              BASE TABLE        residentiel.tc_conso_corrigees    achl
+                                              BASE TABLE        residentiel.tc_emi                achl
+
+</pre>
+
+And for generating a cascaded graph:
+
+```
+pg_dependences -g -t achl_groupe residentiel
+```
+
+ It will be saved under your home directory (can be changed with the `-o` option), and the file named like "schema.table.format" (format=pdf by default, can be changed with the -f option).
+
+![Example graph](examples/residentiel.achl_groupe.png?raw=true)
 
 Graph legend:
 <table>
