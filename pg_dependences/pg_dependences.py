@@ -227,18 +227,22 @@ class Dependences():
         params = [table.schema, table.name]
 
         cols = [Column(row) for row in self._exec(sql, params)]
-        logger.debug("%s FKeys= %s" % (table.__unicode__(), [c.__unicode__() for c in cols]))
+        if len(cols) > 0:
+            logger.debug("%s FKeys= %s" % (table.__unicode__(), [c.__unicode__() for c in cols]))
         return table, cols
 
 
 class Graph():
-    def __init__(self, fname, childs_list, fkeys_list, format='pdf'):
+    def __init__(self, fname, format):
         self.graph =  graphviz.Digraph(fname, format=format)
         self.graph.body.extend(['rankdir=LR', 'size="8,5"'])
         self.plotted = list()
+    
+    def render(self, childs_list, fkeys_list):
         self.graph_childs(childs_list)
         self.graph_fkeys(fkeys_list)
-        self.graph.render(cleanup=True)
+        path = self.graph.render(cleanup=True)
+        return path
 
     def graph_childs(self, childs_list):
         """
@@ -249,13 +253,11 @@ class Graph():
 
         for parent, childs in childs_list:
             if parent not in self.plotted:
-                self.graph.attr('node', style=STYLES[parent._type]['style'], color=STYLES[parent._type]['color'])
-                self.graph.node(parent.formated())
+                self.graph.node(parent.formated(), style=STYLES[parent._type]['style'], color=STYLES[parent._type]['color'])
                 self.plotted.append(parent)
             for child in childs:
                 if child not in self.plotted:
-                    self.graph.attr('node', style=STYLES[child._type]['style'], color=STYLES[child._type]['color'])
-                    self.graph.node(child.formated())
+                    self.graph.node(child.formated(), style=STYLES[child._type]['style'], color=STYLES[child._type]['color'])
                     self.plotted.append(child)
                 self.graph.edge(parent.formated(), child.formated())
 
@@ -268,30 +270,29 @@ class Graph():
 
         parent, childs = fkeys_list
         if parent not in self.plotted:
-            self.graph.attr('node', style=STYLES[parent._type]['style'], color=STYLES[parent._type]['color'])
-            self.graph.node(parent.formated())
+            self.graph.node(parent.formated(), style=STYLES[parent._type]['style'], color=STYLES[parent._type]['color'])
             self.plotted.append(parent)
         for child in childs:
             if child not in self.plotted:
-                self.graph.attr('node', style=STYLES[child._type]['style'], color=STYLES[child._type]['color'])
-                self.graph.node(child.formated())
+                self.graph.node(child.formated(), style=STYLES[child._type]['style'], color=STYLES[child._type]['color'])
                 self.plotted.append(child)
             self.graph.edge(parent.formated(), child.formated(), label=child.fkeys())
 
 
-@click.command('graph_dependences')
-@click.option('-u', '--user', help="Database user name. Default to current user",
+@click.command('pg_dependences')
+@click.option('-u', '--user', help="Database user name. Default current user",
               default=lambda: os.environ.get('USER', ''))
 @click.option('-P', '--password', prompt=True, hide_input=True, help="User password. Will be prompted if not set")
-@click.option('-h', '--host', help="Database host address. Default to localhost", default='localhost')
-@click.option('-d', '--database', help="Database name. Default to current user name",
+@click.option('-h', '--host', help="Database host address. Default localhost", default='localhost')
+@click.option('-d', '--database', help="Database name. Default current user name",
               default=lambda: os.environ.get('USER', ''))
-@click.option('-p', '--port', help="Database port to connect to. Default to 5432", default=5432)
-@click.option('-v', '--verbose', help="Verbose mode. Only relevant with --table option", is_flag=True)
+@click.option('-p', '--port', help="Database port to connect to. Default 5432", default=5432)
+@click.option('-v', '--verbose', help="Verbose mode. Only relevant with the --table option and the graph will not be generated", is_flag=True)
 @click.option('-t', '--table', help="Generate a detailled cascading graph of all objects related to this table or view")
-@click.option('-o', '--output', help="Directory where to put the resulting PDF file. Default to home directory")
+@click.option('-o', '--output', help="Directory where to put the graph file. Default to home directory and filename formated as schema.table.gv.format")
+@click.option('-f', '--format', help="Graph file format (see Graphviz docs for more). Default to pdf", default='pdf')
 @click.argument('schema')
-def run(user, password, host, database, port, verbose, table, output, schema):
+def run(user, password, host, database, port, verbose, table, output, format, schema):
     """
     Report counts of linked objects and foreign keys at the first level for all tables and views in the specified
     schema.
@@ -300,7 +301,7 @@ def run(user, password, host, database, port, verbose, table, output, schema):
     using foreign keys to this top level table, if any.
     """
 
-    if verbose:
+    if verbose and table is not None:
         logger.setLevel(logging.DEBUG)
 
     dep = Dependences(user=user, password=password, host=host, database=database, port=port)
@@ -314,15 +315,16 @@ def run(user, password, host, database, port, verbose, table, output, schema):
             res.append([table.schema, table._type, table.name, ilo, ifk])
         print(tabulate(res, ["Schema", "Type", "Name", "Dependents (first level)", "Foreign keys"]))
     else:
-        if not output:
-            output = os.path.expanduser('~')
-        fname = "{0}.{1}".format(schema, table)
-
         table = dep.create_table(schema, table)
         childs_list = dep.recursive_childs(table)
         fkeys_list = dep.fkeys(table)
+        if not verbose:
+            if not output:
+                output = os.path.expanduser('~')
+            g = Graph(os.path.join(output, table.formated()), format=format)
+            path = g.render(childs_list, fkeys_list)
+            logger.info("Graph rendered in %s" % path)
 
-        Graph(os.path.join(output, fname), childs_list, fkeys_list, format='pdf')
 
 
 if __name__ == '__main__':
