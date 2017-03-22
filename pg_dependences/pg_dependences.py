@@ -13,9 +13,9 @@ logging.basicConfig(format=format_, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 STYLES = {
-    'BASE TABLE': {'style':'solid', 'color':'black'},
-    'FUNCTION': {'style':'filled', 'color':'lightblue2'},
-    'VIEW': {'style':'filled', 'color':'lightgrey'}
+    'BASE TABLE': {'style':'solid', 'color':'black', 'shape':'tab'},
+    'FUNCTION': {'style':'filled', 'color':'lightblue2', 'shape':'box'},
+    'VIEW': {'style':'filled', 'color':'lightgrey', 'shape':'tab'}
 }
 
 class Table():
@@ -26,37 +26,20 @@ class Table():
 
         :param row: a psycopg2.DictCursor row
         """
+        self._type = row['type']
         self.schema = row['schema_name']
         self.name = row['table_name']
-        self._type = row['type']
+        self.cols = ','.join(row['cols_name'])
     
     def formated(self):
         return "{0}.{1}".format(self.schema, self.name)
     
     def __unicode__(self):
-        return "[{0}] {1}.{2}".format(self._type, self.schema, self.name)
-
-
-class Column():
-    def __init__(self, row):
-        """
-        An column object
-
-        :param row: a psycopg2.DictCursor row
-        """
-        self.schema = row['schema_name']
-        self.table = row['table_name']
-        self.name = row['name']
-        self._type = 'BASE TABLE'
-    
-    def formated(self):
-        return "{0}.{1}".format(self.schema, self.table)
-    
-    def fkeys(self):
-        return ', '.join(self.name)
-    
-    def __unicode__(self):
-        return "{0}.{1}.{2}".format(self.schema, self.table, self.name)
+        if len(self.cols)>0:
+            cols = "({0})".format(self.cols)
+        else:
+            cols = ''
+        return "<{0}> {1}.{2} {3}".format(self._type, self.schema, self.name, cols)
 
 
 class Dependences():
@@ -88,7 +71,8 @@ class Dependences():
         SELECT
             table_type AS type,
             table_schema AS schema_name,
-            table_name
+            table_name,
+            ''::TEXT AS cols_name
         FROM information_schema.tables
         WHERE table_schema = %s AND table_name = %s
         AND table_type IN ('BASE TABLE', 'VIEW')
@@ -108,7 +92,8 @@ class Dependences():
         SELECT
             table_type AS type,
             table_schema AS schema_name,
-            table_name
+            table_name,
+            ''::TEXT AS cols_name
         FROM information_schema.tables
         WHERE table_schema = %s
         AND table_type IN ('BASE TABLE', 'VIEW')
@@ -152,7 +137,11 @@ class Dependences():
             UNION SELECT * FROM v
         )
 
-        SELECT type, schema_name, table_name
+        SELECT 
+            type, 
+            schema_name, 
+            table_name,
+            ''::TEXT AS cols_name
         FROM r
         WHERE definition SIMILAR TO %s
         OR (definition SIMILAR TO %s AND schema_name=%s)
@@ -195,9 +184,10 @@ class Dependences():
 
         sql = """
         SELECT
+        'BASE TABLE'::TEXT AS type,
         rest.table_schema as schema_name,
         rest.table_name,
-        rest.column_name AS name
+        rest.column_name AS cols_name
         FROM (
             SELECT
                 a.constraint_catalog, a.constraint_schema, a.constraint_name, a.table_schema, a.table_name,
@@ -226,7 +216,7 @@ class Dependences():
         
         params = [table.schema, table.name]
 
-        cols = [Column(row) for row in self._exec(sql, params)]
+        cols = [Table(row) for row in self._exec(sql, params)]
         if len(cols) > 0:
             logger.debug("%s FKeys= %s" % (table.__unicode__(), [c.__unicode__() for c in cols]))
         return table, cols
@@ -235,48 +225,31 @@ class Dependences():
 class Graph():
     def __init__(self, fname, format):
         self.graph =  graphviz.Digraph(fname, format=format)
-        self.graph.body.extend(['rankdir=LR', 'size="8,5"'])
+        self.graph.graph_attr['rankdir'] = 'LR'
         self.plotted = list()
     
-    def render(self, childs_list, fkeys_list):
-        self.graph_childs(childs_list)
-        self.graph_fkeys(fkeys_list)
+    def render(self, dependents):
+        for objects_list in dependents:
+            self.add(objects_list)
         path = self.graph.render(cleanup=True)
         return path
 
-    def graph_childs(self, childs_list):
+    def add(self, objects_list):
         """
-        Add the childs objects to the graph
+        Add the objects to the graph
 
-        :param childs_list: list of [parent, list of childs]
+        :param objects_list: list of [parent, list of objects]
         """
 
-        for parent, childs in childs_list:
+        for parent, objects in objects_list:
             if parent not in self.plotted:
-                self.graph.node(parent.formated(), style=STYLES[parent._type]['style'], color=STYLES[parent._type]['color'])
+                self.graph.node(parent.formated(), **STYLES[parent._type])
                 self.plotted.append(parent)
-            for child in childs:
-                if child not in self.plotted:
-                    self.graph.node(child.formated(), style=STYLES[child._type]['style'], color=STYLES[child._type]['color'])
-                    self.plotted.append(child)
-                self.graph.edge(parent.formated(), child.formated())
-
-    def graph_fkeys(self, fkeys_list):
-        """
-        Add the foreign keys objects to the graph
-
-        :param fkeys: list of [parent, list of fkeys]
-        """
-
-        parent, childs = fkeys_list
-        if parent not in self.plotted:
-            self.graph.node(parent.formated(), style=STYLES[parent._type]['style'], color=STYLES[parent._type]['color'])
-            self.plotted.append(parent)
-        for child in childs:
-            if child not in self.plotted:
-                self.graph.node(child.formated(), style=STYLES[child._type]['style'], color=STYLES[child._type]['color'])
-                self.plotted.append(child)
-            self.graph.edge(parent.formated(), child.formated(), label=child.fkeys())
+            for object in objects:
+                if object not in self.plotted:
+                    self.graph.node(object.formated(), **STYLES[object._type])
+                    self.plotted.append(object)
+                self.graph.edge(parent.formated(), object.formated(), label=object.cols)
 
 
 @click.command('pg_dependences')
@@ -317,12 +290,12 @@ def run(user, password, host, database, port, verbose, table, output, format, sc
     else:
         table = dep.create_table(schema, table)
         childs_list = dep.recursive_childs(table)
-        fkeys_list = dep.fkeys(table)
+        fkeys_list = [dep.fkeys(table)]
         if not verbose:
             if not output:
                 output = os.path.expanduser('~')
             g = Graph(os.path.join(output, table.formated()), format=format)
-            path = g.render(childs_list, fkeys_list)
+            path = g.render([childs_list, fkeys_list])
             logger.info("Graph rendered in %s" % path)
 
 
