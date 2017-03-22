@@ -272,13 +272,9 @@ def run(user, password, host, database, port, graph, table, output, format, sche
     dependents objects and his foreign keys, and graph them.
     """
 
-    # if verbose and table is not None:
-    #     logger.setLevel(logging.DEBUG)
-
     dep = Dependences(user=user, password=password, host=host, database=database, port=port)
 
     if not table:
-        # Display a listing of all objects dependencies inside the schema
         res = list()
         headers = ["Schema", "Type", "Name", "Dependents (first level)", "Foreign keys"]
         for table in dep.schema_list(schema):
@@ -309,15 +305,6 @@ def run(user, password, host, database, port, graph, table, output, format, sche
                         t = ''
                         p = ''
                     res.append([t, p, child._type, child.formated(), child.cols])
-            # for parent, childs in fkeys_list:
-            #     for i, child in enumerate(childs):
-            #         if i == 0:
-            #             t = parent._type
-            #             p = parent.formated()
-            #         else:
-            #             t = ''
-            #             p = ''
-            #         res.append([t, p, child._type, child.formated(), child.cols])
             logger.info(tabulate(res, headers))
 
 
