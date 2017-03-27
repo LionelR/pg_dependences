@@ -44,7 +44,7 @@ class Table():
 
 class Dependences():
     def __init__(self, **kwargs):
-        self.conn = psycopg2.connect(**kwargs, connect_timeout=5)
+        self.conn = psycopg2.connect(**kwargs)
         self.cur = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     
     def _exec(self, sql, params):
@@ -272,7 +272,7 @@ def run(user, password, host, database, port, graph, table, output, format, sche
     dependents objects and his foreign keys, and graph them.
     """
 
-    dep = Dependences(user=user, password=password, host=host, database=database, port=port)
+    dep = Dependences(user=user, password=password, host=host, database=database, port=port, connect_timeout=5)
 
     if not table:
         res = list()
